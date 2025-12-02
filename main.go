@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/user"
+	"os/exec"
 	"regexp"
 	"time"
 	"path/filepath"
@@ -40,6 +41,8 @@ func main() {
 		os.Exit(1)
 	}
 
+
+	durationSeconds := fmt.Sprintf("%v", video.Duration.Seconds())
 	formats := video.Formats.WithAudioChannels()
 
 	var targetFormat int = -1
@@ -62,7 +65,8 @@ func main() {
 	}
 	defer stream.Close()
 
-	filename := fmt.Sprintf("%s.mp4", videoId)
+	tempFilename := fmt.Sprintf("%s-temp.mp4", videoId)
+	filename := fmt.Sprintf("%s.mp3", videoId)
 	today := time.Now().Format("2006-01-02")
 
 	currentUser, err := user.Current()
@@ -83,20 +87,41 @@ func main() {
 		os.Exit(1)
 	}
 
+	tempFilePath := filepath.Join(dirPath, tempFilename)
 	filePath := filepath.Join(dirPath, filename)
 
-	file, err := os.Create(filePath)
+	file, err := os.Create(tempFilePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Unable to create audio file.\n%s", usage)
 		os.Exit(1)
 	}
 	defer file.Close()
 
+	fmt.Printf("Downloading audio... ")
 	_, err = io.Copy(file, stream)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Error writing audio file.\n%s", usage)
 		os.Exit(1)
 	}
+
+	cmd := exec.Command("ffmpeg",
+		"-i", tempFilePath,    // Input file
+		"-t", durationSeconds, // Duration to process (trim)
+		"-c", "copy",       // Optional: copies streams for speed, but may require re-encoding if output format changes
+		"-vn", "-acodec", "libmp3lame",
+		filePath,
+	)
+
+	//fmt.Printf("Executing command: %v\n", cmd.Args)
+	fmt.Println("Trimming & converting audio...")
+	
+	_, err = cmd.CombinedOutput()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Error trimming audio file.\n%s", usage)
+		os.Exit(1)
+	}
+
+	exec.Command("rm", tempFilePath).CombinedOutput()
 
 	fmt.Fprintf(os.Stdout, "Successfully wrote %s\n", filePath)
 }
